@@ -21,6 +21,7 @@ bl_info = {
 
 import bpy
 
+from .logging_utils import log, log_addon_source
 from .properties import ARKITGenSettings
 from .ui import ARKITGEN_PT_main_panel
 from .operators_setup import (
@@ -54,18 +55,23 @@ classes = [
 def register():
     """Register the add-on classes and add the settings to the Scene."""
     from bpy.utils import register_class
+    log_addon_source(__file__, __package__ or __name__)
     for cls in classes:
+        log(f"Registering class: {cls.__name__}")
         register_class(cls)
     # Attach our settings property group to the Scene type
     bpy.types.Scene.arkit_gen_settings = bpy.props.PointerProperty(
         type=ARKITGenSettings
     )
+    log("Scene.arkit_gen_settings pointer property registered")
 
 def unregister():
     """Unregister the add-on classes and remove the settings from the Scene."""
     from bpy.utils import unregister_class
     for cls in reversed(classes):
+        log(f"Unregistering class: {cls.__name__}")
         unregister_class(cls)
     # Remove custom property from Scene
     if hasattr(bpy.types.Scene, "arkit_gen_settings"):
         del bpy.types.Scene.arkit_gen_settings
+        log("Scene.arkit_gen_settings pointer property removed")

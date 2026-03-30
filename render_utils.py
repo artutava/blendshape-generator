@@ -10,6 +10,8 @@ positions, switching cameras, and restoring the user's render settings.
 import bpy
 import os
 
+from .logging_utils import log
+
 
 def render_neutral_views(context, obj, output_dir, resolution=512):
     """Render the mesh in its neutral state from all face cameras.
@@ -35,6 +37,11 @@ def render_neutral_views(context, obj, output_dir, resolution=512):
     prev_camera = scene.camera
     prev_res_x = scene.render.resolution_x
     prev_res_y = scene.render.resolution_y
+    prev_filepath = scene.render.filepath
+
+    log(
+        f"Rendering neutral views for '{obj.name}' to '{output_dir}' at {resolution}x{resolution}"
+    )
 
     # Configure render resolution
     scene.render.resolution_x = resolution
@@ -50,6 +57,7 @@ def render_neutral_views(context, obj, output_dir, resolution=512):
     coll_name = context.scene.arkit_gen_settings.camera_collection_name
     coll = bpy.data.collections.get(coll_name)
     if not coll:
+        log(f"Camera collection '{coll_name}' was not found")
         return {}
 
     views = {}
@@ -59,9 +67,10 @@ def render_neutral_views(context, obj, output_dir, resolution=512):
         # Set this camera and render
         scene.camera = cam
         # Compose output filepath
-        filename = f"{cam.name}.png"
+        filename = f"neutral_{cam.name}.png"
         filepath = os.path.join(output_dir, filename)
         scene.render.filepath = filepath
+        log(f"Rendering camera '{cam.name}' -> '{filepath}'")
         bpy.ops.render.render(write_still=True)
         views[cam.name] = filepath
 
@@ -69,4 +78,6 @@ def render_neutral_views(context, obj, output_dir, resolution=512):
     scene.camera = prev_camera
     scene.render.resolution_x = prev_res_x
     scene.render.resolution_y = prev_res_y
+    scene.render.filepath = prev_filepath
+    log(f"Rendered {len(views)} neutral views")
     return views

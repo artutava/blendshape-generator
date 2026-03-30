@@ -68,6 +68,10 @@ class ARKITGEN_PT_main_panel(Panel):
         box.prop(settings, "default_intensity")
         box.prop(settings, "render_resolution")
         box.prop(settings, "num_candidates")
+        box.prop(settings, "allow_procedural_fallback")
+        box.prop(settings, "cache_generated_images")
+        box.prop(settings, "cache_directory")
+        box.prop(settings, "enable_verbose_logging")
 
         # Blendshape list and generation buttons
         box = layout.box()

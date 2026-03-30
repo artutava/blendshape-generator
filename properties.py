@@ -98,3 +98,27 @@ class ARKITGenSettings(PropertyGroup):
         default=False,
     )
 
+    enable_verbose_logging: BoolProperty(
+        name="Verbose Logs",
+        description="Print detailed execution logs to Blender's terminal",
+        default=True,
+    )
+
+    allow_procedural_fallback: BoolProperty(
+        name="Fallback Solver",
+        description="If the remote image API fails, still generate a procedural blendshape locally",
+        default=True,
+    )
+
+    cache_generated_images: BoolProperty(
+        name="Cache Images",
+        description="Save neutral and generated images to a persistent folder for preview",
+        default=True,
+    )
+
+    cache_directory: StringProperty(
+        name="Cache Folder",
+        description="Optional folder for persistent neutral/generated image previews",
+        default="",
+        subtype='DIR_PATH',
+    )
