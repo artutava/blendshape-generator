@@ -122,3 +122,62 @@ class ARKITGenSettings(PropertyGroup):
         default="",
         subtype='DIR_PATH',
     )
+
+    front_first_generation: BoolProperty(
+        name="Front-First",
+        description="Generate the frontal target first and use it as the master reference for reconstruction",
+        default=True,
+    )
+
+    enable_hunyuan_reconstruction: BoolProperty(
+        name="Use Hunyuan3D",
+        description="Run an external Hunyuan3D-2.1 reconstruction job from the generated frontal target",
+        default=False,
+    )
+
+    hunyuan_python_path: StringProperty(
+        name="Hunyuan Python",
+        description="Python executable from the environment where Hunyuan3D-2.1 is installed",
+        default="",
+        subtype='FILE_PATH',
+    )
+
+    hunyuan_workdir: StringProperty(
+        name="Hunyuan Workdir",
+        description="Working directory of the Hunyuan3D-2.1 checkout or environment",
+        default="",
+        subtype='DIR_PATH',
+    )
+
+    hunyuan_model_id: StringProperty(
+        name="Model ID",
+        description="Model identifier passed to the Hunyuan3D-2.1 pipeline",
+        default="tencent/Hunyuan3D-2.1",
+    )
+
+    hunyuan_subfolder: StringProperty(
+        name="Model Subfolder",
+        description="Pipeline subfolder or variant to load inside the Hunyuan checkpoint",
+        default="hunyuan3d-dit-v2-1",
+    )
+
+    hunyuan_timeout_seconds: IntProperty(
+        name="Timeout (s)",
+        description="Maximum time allowed for the external Hunyuan reconstruction job",
+        default=1800,
+        min=60,
+        max=14400,
+    )
+
+    hunyuan_install_root: StringProperty(
+        name="Install Folder",
+        description="Base folder where the Hunyuan3D-2.1 repository and virtual environment will be installed",
+        default="",
+        subtype='DIR_PATH',
+    )
+
+    hunyuan_repo_url: StringProperty(
+        name="Repo URL",
+        description="Git repository used by the installer button",
+        default="https://github.com/Tencent-Hunyuan/Hunyuan3D-2.1.git",
+    )

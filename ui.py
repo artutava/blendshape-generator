@@ -71,6 +71,17 @@ class ARKITGEN_PT_main_panel(Panel):
         box.prop(settings, "allow_procedural_fallback")
         box.prop(settings, "cache_generated_images")
         box.prop(settings, "cache_directory")
+        box.prop(settings, "front_first_generation")
+        box.prop(settings, "enable_hunyuan_reconstruction")
+        if settings.enable_hunyuan_reconstruction:
+            box.prop(settings, "hunyuan_install_root")
+            box.prop(settings, "hunyuan_repo_url")
+            box.operator("arkitgen.install_hunyuan", text="Install / Configure Hunyuan3D")
+            box.prop(settings, "hunyuan_python_path")
+            box.prop(settings, "hunyuan_workdir")
+            box.prop(settings, "hunyuan_model_id")
+            box.prop(settings, "hunyuan_subfolder")
+            box.prop(settings, "hunyuan_timeout_seconds")
         box.prop(settings, "enable_verbose_logging")
 
         # Blendshape list and generation buttons

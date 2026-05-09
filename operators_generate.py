@@ -19,6 +19,11 @@ from .constants import ARKIT_BLENDSHAPES
 from .render_utils import render_neutral_views
 from .api_client import APIQuotaExceededError, APIGenerationError, request_targets
 from .logging_utils import log, log_section, set_verbose_logging
+from .reconstruction_bridge import (
+    create_reconstruction_job,
+    run_hunyuan_reconstruction,
+    save_reconstruction_manifest,
+)
 from .solver import solve_shape
 
 
@@ -61,12 +66,24 @@ class ARKITGEN_OT_generate_blendshape(Operator):
             log("Generation aborted because no face cameras were found")
             return {'CANCELLED'}
 
+        front_view_path = views.get("Front")
+        if settings.front_first_generation and not front_view_path:
+            self.report({'ERROR'}, "Front camera view is required for front-first generation")
+            log("Generation aborted because no 'Front' camera render was available")
+            return {'CANCELLED'}
+
+        request_views = views
+        if settings.front_first_generation:
+            request_views = {"Front": front_view_path}
+            log("Front-first mode is enabled: only the frontal neutral render will be sent to Gemini")
+
         targets = {}
+        reconstruction_result = {"status": "disabled", "neutral_mesh_path": None, "target_mesh_path": None}
         try:
             targets = request_targets(
                 settings,
                 self.blendshape_name,
-                views,
+                request_views,
                 output_dir=generation_dir,
             )
         except APIQuotaExceededError as e:
@@ -98,6 +115,24 @@ class ARKITGEN_OT_generate_blendshape(Operator):
                 "Unexpected API error. Continuing with local procedural fallback.",
             )
 
+        if settings.front_first_generation:
+            front_targets = targets.get("Front") or []
+            if front_view_path and front_targets:
+                job = create_reconstruction_job(
+                    self.blendshape_name,
+                    generation_dir,
+                    front_view_path,
+                    front_targets[0],
+                )
+                save_reconstruction_manifest(job, settings)
+                reconstruction_result = run_hunyuan_reconstruction(job, settings)
+                log(f"Hunyuan reconstruction result status: '{reconstruction_result.get('status')}'")
+            elif front_view_path:
+                log(
+                    "Front-first reconstruction step was skipped because Gemini did not return a "
+                    "frontal target image."
+                )
+
         try:
             solver_result = solve_shape(
                 obj,
@@ -105,6 +140,7 @@ class ARKITGEN_OT_generate_blendshape(Operator):
                 targets,
                 settings=settings,
                 neutral_views=views,
+                reconstruction_result=reconstruction_result,
             )
         except Exception as e:
             self.report({'ERROR'}, f"Solver error: {e}")
@@ -120,7 +156,9 @@ class ARKITGEN_OT_generate_blendshape(Operator):
         )
         log(
             f"Blendshape '{self.blendshape_name}' finished in {elapsed:.2f}s "
-            f"using mode='{mode}' intensity={intensity:.2f} cache='{generation_dir}'"
+            f"using mode='{mode}' intensity={intensity:.2f} "
+            f"reconstruction='{reconstruction_result.get('status')}' "
+            f"cache='{generation_dir}'"
         )
         return {'FINISHED'}
 

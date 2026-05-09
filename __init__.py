@@ -24,6 +24,7 @@ import bpy
 from .logging_utils import log, log_addon_source
 from .properties import ARKITGenSettings
 from .ui import ARKITGEN_PT_main_panel
+from .operators_hunyuan import ARKITGEN_OT_install_hunyuan
 from .operators_setup import (
     ARKITGEN_OT_use_selected_object,
     ARKITGEN_OT_create_head_group,
@@ -42,6 +43,7 @@ from .operators_generate import (
 classes = [
     ARKITGenSettings,
     ARKITGEN_PT_main_panel,
+    ARKITGEN_OT_install_hunyuan,
     ARKITGEN_OT_use_selected_object,
     ARKITGEN_OT_create_head_group,
     ARKITGEN_OT_capture_head_selection,

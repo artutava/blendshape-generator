@@ -15,6 +15,7 @@ import numpy as np
 from bpy_extras.object_utils import world_to_camera_view
 
 from .logging_utils import log
+from .reconstruction_transfer import apply_reconstruction_transfer
 
 try:
     import mediapipe as mp
@@ -23,13 +24,40 @@ except Exception:
 
 
 FACE_MESH = None
-if mp is not None:
-    FACE_MESH = mp.solutions.face_mesh.FaceMesh(
-        static_image_mode=True,
-        max_num_faces=1,
-        refine_landmarks=True,
-        min_detection_confidence=0.5,
-    )
+MEDIAPIPE_BACKEND = "unavailable"
+MEDIAPIPE_INIT_ERROR = None
+
+
+def _init_mediapipe_backend():
+    global FACE_MESH, MEDIAPIPE_BACKEND, MEDIAPIPE_INIT_ERROR
+    if mp is None:
+        MEDIAPIPE_BACKEND = "unavailable"
+        return
+
+    try:
+        solutions = getattr(mp, "solutions", None)
+        if solutions is not None and hasattr(solutions, "face_mesh"):
+            FACE_MESH = solutions.face_mesh.FaceMesh(
+                static_image_mode=True,
+                max_num_faces=1,
+                refine_landmarks=True,
+                min_detection_confidence=0.5,
+            )
+            MEDIAPIPE_BACKEND = "solutions"
+            return
+
+        MEDIAPIPE_BACKEND = "tasks-model-required"
+        MEDIAPIPE_INIT_ERROR = (
+            "This MediaPipe build exposes the Tasks API instead of mp.solutions. "
+            "A Face Landmarker .task model is required before landmark detection can be enabled."
+        )
+    except Exception as exc:
+        FACE_MESH = None
+        MEDIAPIPE_BACKEND = "init-failed"
+        MEDIAPIPE_INIT_ERROR = str(exc)
+
+
+_init_mediapipe_backend()
 
 
 REGION_LANDMARKS = {
@@ -542,8 +570,10 @@ def solve_shape(
     targets: dict,
     settings=None,
     neutral_views: dict | None = None,
+    reconstruction_result: dict | None = None,
 ):
     """Apply an image-guided deformation profile to the requested shape key."""
+    hunyuan_only = bool(getattr(settings, "enable_hunyuan_reconstruction", False))
     basis_key = _get_basis_key(obj)
     target_key = _get_target_key(obj, blendshape_name)
     if basis_key is None:
@@ -556,52 +586,85 @@ def solve_shape(
             key_block.value = 0.0
 
     neutral_views = neutral_views or {}
-    analyses = {}
-    mediapipe_views = 0
-    relevant_regions = BLENDSHAPE_REGIONS.get(blendshape_name, [])
-    for view_name, neutral_path in neutral_views.items():
-        target_paths = targets.get(view_name) or []
-        if not target_paths:
-            continue
-        try:
-            analyses[view_name] = _load_view_analysis(neutral_path, target_paths[0])
-            analysis = analyses[view_name]
-            log(
-                f"View '{view_name}' detection mode: {analysis['detection_mode']} "
-                f"(neutral_landmarks={analysis['neutral_landmarks_detected']}, "
-                f"target_landmarks={analysis['target_landmarks_detected']})"
-            )
-            if relevant_regions and analyses[view_name].get("region_masks"):
-                analyses[view_name]["blendshape_region_mask"] = _merge_region_masks(
-                    analyses[view_name]["region_masks"],
-                    relevant_regions,
-                    analyses[view_name]["attention"].shape,
-                )
-                region_summary = ", ".join(
-                    f"{region}={analysis['region_scores'].get(region, 0.0):.4f}"
-                    for region in relevant_regions
-                )
-                log(f"View '{view_name}' relevant region scores for '{blendshape_name}': {region_summary}")
-            if analyses[view_name].get("has_landmarks"):
-                mediapipe_views += 1
-        except Exception as exc:
-            log(f"Could not analyze view '{view_name}': {exc}")
-
+    reconstruction_result = reconstruction_result or {}
+    reconstruction_status = reconstruction_result.get("status", "disabled")
+    neutral_reconstruction_mesh = reconstruction_result.get("neutral_mesh_path")
+    target_reconstruction_mesh = reconstruction_result.get("target_mesh_path")
+    if reconstruction_status == "finished" and neutral_reconstruction_mesh and target_reconstruction_mesh:
+        log(
+            f"Reconstruction guidance is available for '{blendshape_name}' "
+            f"from neutral='{neutral_reconstruction_mesh}' target='{target_reconstruction_mesh}'"
+        )
+    elif reconstruction_status not in {"disabled", "not_configured"}:
+        log(
+            f"Reconstruction guidance for '{blendshape_name}' is not ready "
+            f"(status='{reconstruction_status}')"
+        )
     default_intensity = getattr(settings, "default_intensity", 0.7)
-    strength = _estimate_expression_strength(analyses, blendshape_name, default_intensity)
-    if analyses and mediapipe_views > 0:
-        mode = "mediapipe-opencv"
-    elif analyses:
-        mode = "opencv-only"
+    if hunyuan_only:
+        analyses = {}
+        strength = _clamp(default_intensity, 0.08, 1.0)
+        mode = "hunyuan-only"
+        log(
+            f"Hunyuan-only mode is enabled for '{blendshape_name}'. "
+            f"Skipping OpenCV/MediaPipe guidance and using intensity={strength:.3f}."
+        )
     else:
-        mode = "procedural-fallback"
+        analyses = {}
+        mediapipe_views = 0
+        relevant_regions = BLENDSHAPE_REGIONS.get(blendshape_name, [])
+        for view_name, neutral_path in neutral_views.items():
+            target_paths = targets.get(view_name) or []
+            if not target_paths:
+                continue
+            try:
+                analyses[view_name] = _load_view_analysis(neutral_path, target_paths[0])
+                analysis = analyses[view_name]
+                log(
+                    f"View '{view_name}' detection mode: {analysis['detection_mode']} "
+                    f"(neutral_landmarks={analysis['neutral_landmarks_detected']}, "
+                    f"target_landmarks={analysis['target_landmarks_detected']})"
+                )
+                if relevant_regions and analyses[view_name].get("region_masks"):
+                    analyses[view_name]["blendshape_region_mask"] = _merge_region_masks(
+                        analyses[view_name]["region_masks"],
+                        relevant_regions,
+                        analyses[view_name]["attention"].shape,
+                    )
+                    region_summary = ", ".join(
+                        f"{region}={analysis['region_scores'].get(region, 0.0):.4f}"
+                        for region in relevant_regions
+                    )
+                    log(f"View '{view_name}' relevant region scores for '{blendshape_name}': {region_summary}")
+                if analyses[view_name].get("has_landmarks"):
+                    mediapipe_views += 1
+            except Exception as exc:
+                log(f"Could not analyze view '{view_name}': {exc}")
 
-    if mp is None:
-        log("MediaPipe is not installed in Blender's Python. Using OpenCV-only image guidance.")
-    elif analyses and mediapipe_views == 0:
-        log("MediaPipe did not detect landmarks in the available views. Using OpenCV-only guidance.")
-    elif analyses:
-        log(f"MediaPipe detected usable landmarks in {mediapipe_views}/{len(analyses)} analyzed views.")
+        strength = _estimate_expression_strength(analyses, blendshape_name, default_intensity)
+        if analyses and mediapipe_views > 0:
+            mode = "mediapipe-opencv"
+        elif analyses:
+            mode = "opencv-only"
+        else:
+            mode = "procedural-fallback"
+
+        if mp is None:
+            log("MediaPipe is not installed in Blender's Python. Using OpenCV-only image guidance.")
+        elif MEDIAPIPE_BACKEND == "tasks-model-required":
+            log(
+                "MediaPipe is installed, but this build only exposes the Tasks API and still needs a "
+                "Face Landmarker .task model. Using OpenCV-only guidance for now."
+            )
+        elif MEDIAPIPE_BACKEND == "init-failed":
+            log(f"MediaPipe failed to initialize: {MEDIAPIPE_INIT_ERROR}. Using OpenCV-only guidance.")
+        elif analyses and mediapipe_views == 0:
+            log("MediaPipe did not detect landmarks in the available views. Using OpenCV-only guidance.")
+        elif analyses:
+            log(
+                f"MediaPipe backend '{MEDIAPIPE_BACKEND}' detected usable landmarks in "
+                f"{mediapipe_views}/{len(analyses)} analyzed views."
+            )
 
     indices = _get_head_indices(obj, settings)
     basis_coords = [basis_key.data[index].co.copy() for index in indices]
@@ -625,6 +688,30 @@ def solve_shape(
 
     for vert_index in range(len(obj.data.vertices)):
         target_key.data[vert_index].co = basis_key.data[vert_index].co
+
+    transfer_result = apply_reconstruction_transfer(
+        obj,
+        basis_key,
+        target_key,
+        indices,
+        blendshape_name,
+        strength,
+        reconstruction_result,
+    )
+    if transfer_result and transfer_result.get("vertex_count", 0) > 0:
+        target_key.value = 1.0
+        log(
+            f"Applied solver result for '{blendshape_name}' using mode='{transfer_result['mode']}' "
+            f"with strength={transfer_result['intensity']:.3f} over "
+            f"{transfer_result['vertex_count']} driven vertices"
+        )
+        return transfer_result
+    if hunyuan_only:
+        raise RuntimeError(
+            "Hunyuan-only mode is enabled, but the reconstruction transfer did not produce a usable "
+            "deformation. Check the Gemini frontal target and the Hunyuan outputs in the cache folder."
+        )
+
     relevant_views = _view_weights(blendshape_name)
     scene = bpy.context.scene
     moved_vertices = 0
